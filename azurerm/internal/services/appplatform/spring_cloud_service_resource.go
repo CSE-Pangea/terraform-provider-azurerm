@@ -3,6 +3,7 @@ package appplatform
 import (
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/services/preview/appplatform/mgmt/2019-05-01-preview/appplatform"
@@ -82,6 +83,15 @@ func resourceArmSpringCloudService() *schema.Resource {
 							Type:         schema.TypeString,
 							Required:     true,
 							ValidateFunc: networkValidate.SubnetID,
+						},
+
+						"cidr": {
+							Type:     schema.TypeList,
+							Optional: true,
+							Computed: true,
+							Elem: &schema.Schema{
+								Type: schema.TypeString,
+							},
 						},
 
 						"service_runtime_network_resource_group": {
@@ -405,10 +415,17 @@ func expandArmSpringCloudNetwork(input []interface{}) *appplatform.NetworkProfil
 		return nil
 	}
 	v := input[0].(map[string]interface{})
+
+	cidrs := utils.ExpandStringSlice(v["cidr"].([]interface{}))
+	serviceCidr := "10.0.0.0/16,10.2.0.0/16,10.3.0.1/16"
+	if len(*cidrs) > 0 {
+		serviceCidr = strings.Join(*cidrs, ",")
+	}
+
 	network := &appplatform.NetworkProfile{
 		ServiceRuntimeSubnetID: utils.String(v["service_runtime_subnet_id"].(string)),
 		AppSubnetID:            utils.String(v["app_subnet_id"].(string)),
-		ServiceCidr:            utils.String("10.0.0.0/16,10.2.0.0/16,10.3.0.1/16"),
+		ServiceCidr:            utils.String(serviceCidr),
 	}
 	if serviceRuntimeNetworkResourceGroup := v["service_runtime_network_resource_group"].(string); serviceRuntimeNetworkResourceGroup != "" {
 		network.ServiceRuntimeNetworkResourceGroup = utils.String(serviceRuntimeNetworkResourceGroup)
@@ -763,11 +780,16 @@ func flattenArmSpringCloudNetwork(input *appplatform.NetworkProfile) []interface
 	}
 
 	var serviceRuntimeSubnetID, appSubnetID, serviceRuntimeNetworkResourceGroup, appNetworkResourceGroup string
+	var cidr []interface{}
 	if input.ServiceRuntimeSubnetID != nil {
 		serviceRuntimeSubnetID = *input.ServiceRuntimeSubnetID
 	}
 	if input.AppSubnetID != nil {
 		appSubnetID = *input.AppSubnetID
+	}
+	if input.ServiceCidr != nil {
+		cidrs := strings.Split(*input.ServiceCidr, ",")
+		cidr = utils.FlattenStringSlice(&cidrs)
 	}
 	if input.ServiceRuntimeNetworkResourceGroup != nil {
 		serviceRuntimeNetworkResourceGroup = *input.ServiceRuntimeNetworkResourceGroup
@@ -780,6 +802,7 @@ func flattenArmSpringCloudNetwork(input *appplatform.NetworkProfile) []interface
 		map[string]interface{}{
 			"service_runtime_subnet_id":              serviceRuntimeSubnetID,
 			"app_subnet_id":                          appSubnetID,
+			"cidr":                                   cidr,
 			"service_runtime_network_resource_group": serviceRuntimeNetworkResourceGroup,
 			"app_network_resource_group":             appNetworkResourceGroup,
 		},
