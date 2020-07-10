@@ -1,3 +1,78 @@
+# private branch for Spring Cloud Service Virtual Network Integration
+
+## Instruction
+This feature is based on azurerm provider 2.17.0
+
+to build a private binary, you should 
+- checkout this repo and switch to current branch
+- `make build`
+
+If you want to cross compile for other OS platform, you could change the file: `GNUmakefile`. In the line 23, add cross compile parameters
+
+## how to use private build binary
+please See https://www.terraform.io/docs/extend/how-terraform-works.html#plugin-locations for more details
+
+## verify
+The way to verify you are using the private build version is to check the debug log of terraform
+
+- you shall see: `[DEBUG] plugin: starting plugin: path=<plugin location>/terraform-provider-azurerm`
+- debug log should contain following information
+```
+[INFO] *************************************************************************************
+[INFO] ***** Using Terraform Azure provider with Spring Cloud Service Vnet Integration *****
+[INFO] *************************************************************************************
+```
+
+## sample usage
+```hcl
+provider "azurerm" {
+  features {}
+}
+
+data "azurerm_resource_group" "test" {
+  name = "cz"
+}
+
+resource "azurerm_virtual_network" "test" {
+  name                = "testvnet"
+  address_space       = ["10.1.0.0/16"]
+  location            = data.azurerm_resource_group.test.location
+  resource_group_name = data.azurerm_resource_group.test.name
+}
+
+resource "azurerm_subnet" "test1" {
+  name                 = "internal1"
+  resource_group_name  = data.azurerm_resource_group.test.name
+  virtual_network_name = azurerm_virtual_network.test.name
+  address_prefix       = "10.1.0.0/24"
+}
+
+resource "azurerm_subnet" "test2" {
+  name                 = "internal2"
+  resource_group_name  = data.azurerm_resource_group.test.name
+  virtual_network_name = azurerm_virtual_network.test.name
+  address_prefix       = "10.1.1.0/24"
+}
+
+resource "azurerm_role_assignment" "test" {
+  scope                = azurerm_virtual_network.test.id
+  role_definition_name = "Owner"
+  principal_id         = "d2531223-68f9-459e-b225-5592f90d145e"
+}
+
+resource "azurerm_spring_cloud_service" "test" {
+  name                = "sc-cz"
+  resource_group_name = data.azurerm_resource_group.test.name
+  location            = data.azurerm_resource_group.test.location
+  
+  network {
+    app_subnet_id             = azurerm_subnet.test1.id
+    service_runtime_subnet_id = azurerm_subnet.test2.id
+    cidr                      = ["10.4.0.0/16", "10.5.0.0/16", "10.3.0.1/16"]
+  }
+}
+```
+
 # Terraform Provider for Azure (Resource Manager)
 
 Version 2.0 of the AzureRM Provider requires Terraform 0.12.x and later.
