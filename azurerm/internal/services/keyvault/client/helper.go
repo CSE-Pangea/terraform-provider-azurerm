@@ -66,12 +66,14 @@ func (client Client) FindKeyVault(ctx context.Context, keyVaultUrl string) (*key
 			return nil, fmt.Errorf("failed to make Read request on KeyVault %q (Resource Group %q): %+v", id.Name, id.ResourceGroup, err)
 		}
 
-		vaultDetails, err := populateKeyVaultDetails(vault)
-		if err != nil {
-			return nil, err
-		}
+		if vault.ID != nil && *vault.ID != "" {
+			vaultDetails, err := populateKeyVaultDetails(vault)
+			if err != nil {
+				return nil, err
+			}
 
-		keyVaultsCache[*vault.Properties.VaultURI] = vaultDetails
+			keyVaultsCache[*vault.Properties.VaultURI] = vaultDetails
+		}
 
 		if e := list.NextWithContext(ctx); e != nil {
 			return nil, fmt.Errorf("failed to get next vault on KeyVault url %q : %+v", keyVaultUrl, err)
@@ -85,25 +87,21 @@ func (client Client) FindKeyVault(ctx context.Context, keyVaultUrl string) (*key
 	return nil, nil
 }
 
-func populateKeyVaultDetails(props keyvault.Vault) (*keyVaultDetails, error) {
-	if props.ID == nil || *props.ID == "" {
-		return nil, fmt.Errorf("`id` was nil or empty for Account %q", props.Name)
-	}
-
-	id, err := parse.KeyVaultID(*props.ID)
+func populateKeyVaultDetails(vault keyvault.Vault) (*keyVaultDetails, error) {
+	id, err := parse.KeyVaultID(*vault.ID)
 	if err != nil {
-		return nil, fmt.Errorf("parsing %q as key vault ID: %+v", *props.ID, err)
+		return nil, fmt.Errorf("parsing %q as key vault ID: %+v", *vault.ID, err)
 	}
 
-	if props.Properties == nil || props.Properties.VaultURI == nil {
+	if vault.Properties == nil || vault.Properties.VaultURI == nil {
 		return nil, fmt.Errorf("KeyVault %q (Resource Group %q) has nil ID, properties or vault URI", id.Name, id.ResourceGroup)
 	}
 
 	return &keyVaultDetails{
-		ID:            *props.ID,
+		ID:            *vault.ID,
 		Name:          id.Name,
 		ResourceGroup: id.ResourceGroup,
-		Properties:    props.Properties,
-		Tags:          props.Tags,
+		Properties:    vault.Properties,
+		Tags:          vault.Tags,
 	}, nil
 }
