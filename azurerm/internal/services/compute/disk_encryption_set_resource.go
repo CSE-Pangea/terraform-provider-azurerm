@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/services/compute/mgmt/2019-12-01/compute"
-	"github.com/Azure/azure-sdk-for-go/services/keyvault/mgmt/2018-02-14/keyvault"
 	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
 	"github.com/hashicorp/terraform-plugin-sdk/helper/validation"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/helpers/azure"
@@ -93,7 +92,6 @@ func resourceArmDiskEncryptionSet() *schema.Resource {
 
 func resourceArmDiskEncryptionSetCreateUpdate(d *schema.ResourceData, meta interface{}) error {
 	client := meta.(*clients.Client).Compute.DiskEncryptionSetsClient
-	vaultClient := meta.(*clients.Client).KeyVault.VaultsClient
 	ctx, cancel := timeouts.ForCreateUpdate(meta.(*clients.Client).StopContext, d)
 	defer cancel()
 
@@ -113,7 +111,7 @@ func resourceArmDiskEncryptionSetCreateUpdate(d *schema.ResourceData, meta inter
 	}
 
 	keyVaultKeyId := d.Get("key_vault_key_id").(string)
-	keyVaultDetails, err := diskEncryptionSetRetrieveKeyVault(ctx, vaultClient, keyVaultKeyId)
+	keyVaultDetails, err := diskEncryptionSetRetrieveKeyVault(ctx, meta, keyVaultKeyId)
 	if err != nil {
 		return fmt.Errorf("Error validating Key Vault Key %q for Disk Encryption Set: %+v", keyVaultKeyId, err)
 	}
@@ -264,36 +262,26 @@ type diskEncryptionSetKeyVault struct {
 	softDeleteEnabled      bool
 }
 
-func diskEncryptionSetRetrieveKeyVault(ctx context.Context, client *keyvault.VaultsClient, id string) (*diskEncryptionSetKeyVault, error) {
+func diskEncryptionSetRetrieveKeyVault(ctx context.Context, meta interface{}, id string) (*diskEncryptionSetKeyVault, error) {
+	vaultClient := meta.(*clients.Client).KeyVault
+
 	keyVaultKeyId, err := azure.ParseKeyVaultChildID(id)
 	if err != nil {
 		return nil, err
 	}
-	keyVaultID, err := azure.GetKeyVaultIDFromBaseUrl(ctx, client, keyVaultKeyId.KeyVaultBaseUrl)
-	if err != nil {
-		return nil, fmt.Errorf("Error retrieving the Resource ID the Key Vault at URL %q: %s", keyVaultKeyId.KeyVaultBaseUrl, err)
-	}
-	if keyVaultID == nil {
-		return nil, fmt.Errorf("Unable to determine the Resource ID for the Key Vault at URL %q", keyVaultKeyId.KeyVaultBaseUrl)
-	}
 
-	// TODO: use keyvault's custom ID parse function when implemented
-	parsedKeyVaultID, err := azure.ParseAzureResourceID(*keyVaultID)
+	vault, err := vaultClient.FindKeyVault(ctx, keyVaultKeyId.KeyVaultBaseUrl)
 	if err != nil {
-		return nil, fmt.Errorf("Error parsing ID for keyvault in Disk Encryption Set: %+v", err)
+		return nil, fmt.Errorf("retrieving the Resource ID for the Key Vault at URL %q: %s", keyVaultKeyId.KeyVaultBaseUrl, err)
 	}
-	resourceGroup := parsedKeyVaultID.ResourceGroup
-	vaultName := parsedKeyVaultID.Path["vaults"]
-
-	resp, err := client.Get(ctx, resourceGroup, vaultName)
-	if err != nil {
-		return nil, fmt.Errorf("Error retrieving KeyVault %q (Resource Group %q): %+v", vaultName, resourceGroup, err)
+	if vault == nil {
+		return nil, fmt.Errorf("retrieving key vault %q", keyVaultKeyId.KeyVaultBaseUrl)
 	}
 
 	purgeProtectionEnabled := false
 	softDeleteEnabled := false
 
-	if props := resp.Properties; props != nil {
+	if props := vault.Properties; props != nil {
 		if props.EnableSoftDelete != nil {
 			softDeleteEnabled = *props.EnableSoftDelete
 		}
@@ -304,9 +292,9 @@ func diskEncryptionSetRetrieveKeyVault(ctx context.Context, client *keyvault.Vau
 	}
 
 	return &diskEncryptionSetKeyVault{
-		keyVaultId:             *keyVaultID,
-		resourceGroupName:      resourceGroup,
-		keyVaultName:           vaultName,
+		keyVaultId:             vault.ID,
+		resourceGroupName:      vault.ResourceGroup,
+		keyVaultName:           vault.Name,
 		purgeProtectionEnabled: purgeProtectionEnabled,
 		softDeleteEnabled:      softDeleteEnabled,
 	}, nil
