@@ -1,7 +1,7 @@
 # private branch for Spring Cloud Service Virtual Network Integration
 
 ## Instruction
-This feature is based on azurerm provider 2.17.0
+This feature is based on azurerm provider 2.26.0
 
 to build a private binary, you should 
 - checkout this repo and switch to current branch
@@ -54,10 +54,21 @@ resource "azurerm_subnet" "test2" {
   address_prefix       = "10.1.1.0/24"
 }
 
+data "azuread_service_principal" "test" {
+  display_name = "Azure Spring Cloud Resource Provider"
+}
+
 resource "azurerm_role_assignment" "test" {
   scope                = azurerm_virtual_network.test.id
   role_definition_name = "Owner"
-  principal_id         = "d2531223-68f9-459e-b225-5592f90d145e"
+  principal_id         = data.azuread_service_principal.test.object_id
+}
+
+resource "azurerm_application_insights" "test" {
+  name                = "tf-test-appinsights"
+  location            = data.azurerm_resource_group.test.location
+  resource_group_name = data.azurerm_resource_group.test.name
+  application_type    = "web"
 }
 
 resource "azurerm_spring_cloud_service" "test" {
@@ -70,6 +81,49 @@ resource "azurerm_spring_cloud_service" "test" {
     service_runtime_subnet_id = azurerm_subnet.test2.id
     cidr                      = ["10.4.0.0/16", "10.5.0.0/16", "10.3.0.1/16"]
   }
+
+  trace {
+    instrumentation_key = azurerm_application_insights.test.instrumentation_key
+  }
+
+  depends_on = [azurerm_role_assignment.test]
+}
+
+resource "azurerm_spring_cloud_app" "test" {
+  name                = "app1"
+  resource_group_name = azurerm_spring_cloud_service.test.resource_group_name
+  service_name        = azurerm_spring_cloud_service.test.name
+
+  identity {
+    type = "SystemAssigned"
+  }
+}
+
+data "azurerm_client_config" "current" {}
+
+resource "azurerm_key_vault" "test" {
+  name                = "key-vault-test-cz"
+  location            = data.azurerm_resource_group.test.location
+  resource_group_name = data.azurerm_resource_group.test.name
+  tenant_id           = data.azurerm_client_config.current.tenant_id
+  sku_name            = "standard"
+}
+
+resource "azurerm_key_vault_access_policy" "test" {
+  key_vault_id = azurerm_key_vault.test.id
+  tenant_id    = data.azurerm_client_config.current.tenant_id
+  object_id    = data.azurerm_client_config.current.object_id
+
+  secret_permissions      = ["get", "set", "delete", "list"]
+  certificate_permissions = ["create", "delete", "get", "update", "list"]
+}
+
+resource "azurerm_key_vault_access_policy" "test1" {
+  key_vault_id = azurerm_key_vault.test.id
+  tenant_id    = data.azurerm_client_config.current.tenant_id
+  object_id    = azurerm_spring_cloud_app.test.identity.0.principal_id
+
+  secret_permissions = ["get", "list"]
 }
 ```
 
