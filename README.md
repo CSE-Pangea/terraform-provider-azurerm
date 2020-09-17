@@ -2,7 +2,7 @@
 ---
 # Michael's Notes
 * Use the latest version of terraform 12. With terraform 13, the plugin will not be found on the right path.
-* Checkout the branch `spring_cloud_vnet_integration`
+* Checkout the branch `spring_cloud_vnet_service_integration`
 * `make build` - This installs the provider as a binary into `$GOPATH/bin/terraform-provider-azurerm`
 * Create the directory `~/.terraform.d/plugins/` and place the binary in the path
 * Login to azure through the CLI
